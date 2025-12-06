@@ -1,0 +1,5 @@
+{
+  "name": "IsaProject_Metadata",
+  "description": "AI-powered metadata generator for images, videos, and vectors using Google Gemini 2.5.",
+  "requestFramePermissions": []
+}
