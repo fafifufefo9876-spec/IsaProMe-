@@ -420,10 +420,10 @@ const App: React.FC = () => {
           <h1 className="text-5xl font-share-tech font-bold bg-gradient-to-r from-blue-600 to-cyan-400 bg-clip-text text-transparent tracking-tighter leading-none select-none">IsaProMe</h1>
         </div>
         <div className="flex flex-col items-end justify-center text-gray-800">
-           <span className="text-xl leading-none tracking-tight tabular-nums">
+           <span className="text-2xl leading-none tracking-tight tabular-nums">
              {formatTime(currentTime)}
            </span>
-           <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wider mt-0.5 tabular-nums">
+           <span className="text-xs text-gray-500 font-medium uppercase tracking-wider mt-0.5 tabular-nums">
              {formatDate(currentTime)}
            </span>
         </div>
@@ -432,7 +432,7 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col md:flex-row md:overflow-hidden relative pt-16">
         
         {/* Sidebar */}
-        <aside className="w-full md:w-80 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shrink-0 z-20 shadow-sm md:shadow-none order-1 h-auto md:h-full">
+        <aside className="w-full md:w-96 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shrink-0 z-20 shadow-sm md:shadow-none order-1 h-auto md:h-full">
           
           <div className="flex p-2 bg-white border-b border-gray-200 gap-2 shrink-0">
              <button onClick={() => setActiveTab('metadata')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold uppercase tracking-wide flex items-center justify-center gap-2 transition-all border ${activeTab === 'metadata' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'}`}>
