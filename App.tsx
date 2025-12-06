@@ -325,12 +325,14 @@ const App: React.FC = () => {
     try {
       if (!fileItem) throw new Error("File not found in state");
 
-      const metadata = await generateMetadataForFile(fileItem, settings, currentKey);
+      // Generate metadata AND extract thumbnail (frame 0)
+      const { metadata, thumbnail } = await generateMetadataForFile(fileItem, settings, currentKey);
 
       setFiles(prev => prev.map(f => f.id === fileId ? { 
         ...f, 
         status: ProcessingStatus.Completed, 
-        metadata 
+        metadata,
+        thumbnail // Store the lightweight thumbnail!
       } : f));
       
       addLog(`Key ${keyIndex} [Success] ${fileItem.file.name}`, 'success');

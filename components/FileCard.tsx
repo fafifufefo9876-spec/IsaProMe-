@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Edit2, Check, RefreshCw, FileText, Eye } from 'lucide-react';
+import { X, Edit2, Check, RefreshCw, FileText, Eye, Video as VideoIcon } from 'lucide-react';
 import { FileItem, Language, ProcessingStatus, FileType } from '../types';
 import { CATEGORIES } from '../constants';
 import { getCategoryName } from '../utils/helpers';
@@ -82,18 +82,27 @@ const FileCard: React.FC<Props> = ({
 
   const buttonClass = "h-7 flex items-center justify-center rounded border transition-colors";
 
+  // LOGIC FOR LIGHTWEIGHT DISPLAY:
+  // If we have a 'thumbnail' (extracted frame), use <img> instead of <video>.
+  // This saves massive memory/GPU when listing many videos.
+  const useImageProxy = !!item.thumbnail || item.type !== FileType.Video;
+  const displayUrl = item.thumbnail || item.previewUrl;
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col overflow-hidden relative group hover:shadow-md transition-shadow">
       
       {/* 16:9 Container */}
       <div className="relative w-full aspect-video bg-gray-100 overflow-hidden border-b border-gray-100 flex items-center justify-center cursor-pointer" onClick={() => onPreview(item)}>
         
-        {item.type === FileType.Video ? (
+        {/* MEDIA RENDERER */}
+        {!useImageProxy ? (
+           // HEAVY FALLBACK: Only used before processing is done if no thumbnail yet
           <video 
             src={item.previewUrl} 
             className="w-full h-full object-cover"
             muted
             playsInline
+            preload="metadata" // Attempt to be lazy
             onMouseOver={(e) => (e.target as HTMLVideoElement).play()}
             onMouseOut={(e) => {
               const video = e.target as HTMLVideoElement;
@@ -101,18 +110,28 @@ const FileCard: React.FC<Props> = ({
               video.currentTime = 0;
             }}
           />
-        ) : !imageError && isRenderable ? (
+        ) : isRenderable && !imageError ? (
+           // LIGHTWEIGHT PROXY: Image tag used for Videos (after processing) and Images
           <img 
-            src={item.previewUrl} 
+            src={displayUrl} 
             alt={item.file.name} 
             className={`w-full h-full object-cover ${item.type === FileType.Vector ? 'bg-white p-4 object-contain' : ''}`}
             onError={() => setImageError(true)}
           />
         ) : (
+           // NON-RENDERABLE FALLBACK
           <div className="flex flex-col items-center justify-center text-gray-400 gap-1 p-4">
             <FileText size={32} />
             <span className="text-xs font-mono text-center break-all px-2">{item.file.name.split('.').pop()?.toUpperCase()} FILE</span>
           </div>
+        )}
+
+        {/* Video Indicator Overlay (So user knows it is a video even if showing an image) */}
+        {item.type === FileType.Video && (
+           <div className="absolute bottom-2 right-2 bg-black/60 px-1.5 py-1 rounded flex items-center gap-1 z-10 pointer-events-none">
+             <VideoIcon size={10} className="text-white" />
+             <span className="text-[10px] font-bold text-white uppercase tracking-wider">Video</span>
+           </div>
         )}
 
         {/* Eye Icon for Preview (All types) */}
@@ -146,7 +165,6 @@ const FileCard: React.FC<Props> = ({
       <div className="flex-1 flex flex-col relative pt-1"> 
         
         {/* Header: Filename + Buttons */}
-        {/* Added min-h-[30px] to prevent layout jump when buttons appear */}
         <div className="px-3 flex items-end gap-2 pt-1 mb-1 min-h-[30px]">
            
            {/* Left Column: Filename & Divider Line */}

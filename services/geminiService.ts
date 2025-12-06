@@ -25,11 +25,17 @@ const fileToPart = async (file: File): Promise<{ inlineData: { data: string; mim
   });
 };
 
+// Define return type to include thumbnail
+interface GenerationResult {
+  metadata: FileMetadata;
+  thumbnail?: string;
+}
+
 export const generateMetadataForFile = async (
   fileItem: FileItem,
   settings: AppSettings,
   apiKey: string
-): Promise<FileMetadata> => {
+): Promise<GenerationResult> => {
   try {
     const ai = new GoogleGenAI({ apiKey });
 
@@ -59,9 +65,16 @@ export const generateMetadataForFile = async (
     // 4. Prepare contents
     let parts: any[] = [];
     let promptText = "Analyze this asset and generate commercial metadata in English and Indonesian.";
+    let generatedThumbnail: string | undefined = undefined;
 
     if (fileItem.type === FileType.Video) {
+      // THIS IS THE HEAVY LIFTING (Happens in Worker)
       const frames = await extractVideoFrames(fileItem.file);
+      
+      // Save the first frame as the thumbnail for the UI "Trick"
+      // This allows us to replace the <video> tag with an <img> tag in the UI
+      generatedThumbnail = `data:image/jpeg;base64,${frames[0]}`;
+
       promptText = "Analyze these 3 frames (Start, Middle, End) from a video footage. Describe the action and motion.";
       parts = [
         { inlineData: { mimeType: 'image/jpeg', data: frames[0] } },
@@ -120,15 +133,18 @@ export const generateMetadataForFile = async (
     const validCategory = CATEGORIES.find(c => c.id === parsed.category) ? parsed.category : '8';
 
     return {
-      en: {
-        title: parsed.en?.title || "",
-        keywords: parsed.en?.keywords || ""
+      metadata: {
+        en: {
+          title: parsed.en?.title || "",
+          keywords: parsed.en?.keywords || ""
+        },
+        ind: {
+          title: parsed.ind?.title || "",
+          keywords: parsed.ind?.keywords || ""
+        },
+        category: validCategory,
       },
-      ind: {
-        title: parsed.ind?.title || "",
-        keywords: parsed.ind?.keywords || ""
-      },
-      category: validCategory,
+      thumbnail: generatedThumbnail
     };
 
   } catch (error: any) {

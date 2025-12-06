@@ -27,6 +27,7 @@ export interface FileItem {
   id: string;
   file: File;
   previewUrl: string; // For images: blob url. For video: blob url of the middle frame.
+  thumbnail?: string; // NEW: Lightweight base64 image for UI display (proxy for heavy video)
   extractedFrames?: string[]; // Specifically for video: [start, middle, end] base64 strings
   type: FileType;
   status: ProcessingStatus;
