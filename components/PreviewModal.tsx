@@ -38,13 +38,13 @@ const PreviewModal: React.FC<Props> = ({ item, onClose }) => {
              <video 
                src={item.previewUrl} 
                controls 
-               className="max-h-[50vh] max-w-full object-contain"
+               className="max-h-[30vh] max-w-full object-contain"
              />
            ) : (
             <img 
               src={item.previewUrl} 
               alt={item.file.name} 
-              className={`max-h-[50vh] max-w-full object-contain ${isVector ? 'bg-white' : ''}`} 
+              className={`max-h-[30vh] max-w-full object-contain ${isVector ? 'bg-white' : ''}`} 
             />
            )}
         </div>
