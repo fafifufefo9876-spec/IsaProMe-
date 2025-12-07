@@ -182,7 +182,7 @@ const FileCard: React.FC<Props> = ({
          
          {/* CATEGORY SECTION */}
          <div className="flex gap-2 items-center">
-           <span className={`${labelClass} bg-green-50 text-green-600 border-green-200`}>CAT</span>
+           <span className={`${labelClass} bg-green-50 text-green-600 border-green-200`}>CATEGORY</span>
            <div className="h-6 w-full relative">
               {isEditing ? (
                  <select

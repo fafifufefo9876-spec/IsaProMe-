@@ -46,7 +46,7 @@ const App: React.FC = () => {
   const activeWorkersRef = useRef(0);
   const queueRef = useRef<string[]>([]);
   
-  // LOGIC UPDATE: Track active keys to prevent double usage
+  // LOGIC UPDATE: Track active active keys to prevent double usage
   const activeKeysRef = useRef<Set<string>>(new Set());
   
   // LOGIC UPDATE: Cooldown map instead of Dead Keys
@@ -261,8 +261,6 @@ const App: React.FC = () => {
     addLog(`Downloaded CSV: ${filename} (English Standard)`, 'success');
   };
 
-  const getLanguage = (id: string): Language => fileLanguages[id] || 'ENG';
-
   // --- IMPROVED WORKER LOGIC (Round Robin + Smart Concurrency) ---
 
   const startProcessing = () => {
@@ -456,6 +454,10 @@ const App: React.FC = () => {
     }
   };
 
+  const getLanguage = (id: string): Language => {
+    return fileLanguages[id] || 'ENG';
+  };
+
   return (
     <div className="flex flex-col min-h-screen md:h-screen bg-gray-50 overflow-x-hidden">
       
@@ -477,7 +479,8 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col md:flex-row md:overflow-hidden relative pt-16">
         
         {/* Sidebar */}
-        <aside className="w-full md:w-96 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shrink-0 z-20 shadow-sm md:shadow-none order-1 h-auto md:h-full">
+        {/* CHANGED: added min-h-[calc(100vh-4rem)] to ensure sidebar fills mobile screen so buttons stay at bottom */}
+        <aside className="w-full md:w-96 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shrink-0 z-20 shadow-sm md:shadow-none order-1 min-h-[calc(100vh-4rem)] md:min-h-0 md:h-full">
           
           <div className="flex p-2 bg-white border-b border-gray-200 gap-2 shrink-0">
              <button onClick={() => setActiveTab('metadata')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold uppercase tracking-wide flex items-center justify-center gap-2 transition-all border ${activeTab === 'metadata' ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'}`}>
@@ -491,91 +494,95 @@ const App: React.FC = () => {
              </a>
           </div>
 
-          <div ref={sidebarContentRef} className="flex-1 bg-gray-50 flex flex-col overflow-hidden">
+          <div ref={sidebarContentRef} className="flex-1 bg-gray-50 flex flex-col overflow-y-auto">
             
-            {activeTab === 'metadata' && (
-              <div className="p-4 flex flex-col gap-4 animate-in slide-in-from-left-2 duration-300 flex-1 overflow-y-auto">
-                <ApiKeyPanel apiKeys={apiKeys} setApiKeys={handleSetApiKeys} isProcessing={isProcessing} />
-                <MetadataSettings settings={settings} setSettings={setSettings} isProcessing={isProcessing} />
+            <div className="p-4 flex flex-col gap-4 animate-in slide-in-from-left-2 duration-300">
+              
+              {activeTab === 'metadata' && (
+                <>
+                  <ApiKeyPanel apiKeys={apiKeys} setApiKeys={handleSetApiKeys} isProcessing={isProcessing} />
+                  <MetadataSettings settings={settings} setSettings={setSettings} isProcessing={isProcessing} />
 
-                <div className="flex flex-col gap-3">
-                  {/* Key attribute ensures React replaces the input when type changes, strictly clearing previous accept rules */}
-                  <input key={`file-${settings.selectedFileType}`} ref={fileInputRef} type="file" multiple accept={getInputAccept()} onChange={handleFileUpload} className="hidden" disabled={isProcessing} />
-                  <input key={`folder-${settings.selectedFileType}`} ref={folderInputRef} type="file" multiple {...({ webkitdirectory: "", directory: "" } as any)} onChange={handleFileUpload} className="hidden" disabled={isProcessing} />
+                  <div className="flex flex-col gap-3">
+                    {/* Key attribute ensures React replaces the input when type changes, strictly clearing previous accept rules */}
+                    <input key={`file-${settings.selectedFileType}`} ref={fileInputRef} type="file" multiple accept={getInputAccept()} onChange={handleFileUpload} className="hidden" disabled={isProcessing} />
+                    <input key={`folder-${settings.selectedFileType}`} ref={folderInputRef} type="file" multiple {...({ webkitdirectory: "", directory: "" } as any)} onChange={handleFileUpload} className="hidden" disabled={isProcessing} />
 
-                  <div className="flex gap-2">
-                    <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className={`flex-1 py-3 rounded-lg font-bold shadow-sm transition-all flex items-center justify-center gap-2 ${isProcessing ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}>
-                       <FilePlus size={18} /> Files
-                    </button>
-                    <button onClick={() => folderInputRef.current?.click()} disabled={isProcessing} className={`flex-1 py-3 rounded-lg font-bold shadow-sm transition-all flex items-center justify-center gap-2 ${isProcessing ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}>
-                       <FolderPlus size={18} /> Folder
-                    </button>
+                    <div className="flex gap-2">
+                      <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className={`flex-1 py-3 rounded-lg font-bold shadow-sm transition-all flex items-center justify-center gap-2 ${isProcessing ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}>
+                         <FilePlus size={18} /> Files
+                      </button>
+                      <button onClick={() => folderInputRef.current?.click()} disabled={isProcessing} className={`flex-1 py-3 rounded-lg font-bold shadow-sm transition-all flex items-center justify-center gap-2 ${isProcessing ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}>
+                         <FolderPlus size={18} /> Folder
+                      </button>
+                    </div>
+
+                    <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm flex flex-col gap-2">
+                       <div className="flex items-center justify-between text-sm font-medium text-gray-600">
+                          <div className="flex items-center gap-1.5"><Circle className="w-3.5 h-3.5 text-blue-500" /> <span>Selected: <span className="text-gray-900">{totalFiles}</span></span></div>
+                          <div className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-green-500" /> <span>Completed: <span className="text-green-600">{completedCount}</span></span></div>
+                          <div className="flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 text-red-500" /> <span>Failed: <span className="text-red-500">{failedCount}</span></span></div>
+                       </div>
+                       <button onClick={handleClearAll} disabled={totalFiles === 0 || isProcessing} className="w-full mt-1 flex items-center justify-center gap-2 py-2 text-sm font-bold uppercase tracking-wide rounded border transition-colors bg-red-50 text-red-600 border-red-200 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50">
+                          <Trash2 size={14} /> Clear All
+                       </button>
+                    </div>
                   </div>
+                </>
+              )}
 
-                  <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm flex flex-col gap-2">
-                     <div className="flex items-center justify-between text-sm font-medium text-gray-600">
-                        <div className="flex items-center gap-1.5"><Circle className="w-3.5 h-3.5 text-blue-500" /> <span>Selected: <span className="text-gray-900">{totalFiles}</span></span></div>
-                        <div className="flex items-center gap-1.5"><CheckCircle className="w-3.5 h-3.5 text-green-500" /> <span>Completed: <span className="text-green-600">{completedCount}</span></span></div>
-                        <div className="flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 text-red-500" /> <span>Failed: <span className="text-red-500">{failedCount}</span></span></div>
-                     </div>
-                     <button onClick={handleClearAll} disabled={totalFiles === 0 || isProcessing} className="w-full mt-1 flex items-center justify-center gap-2 py-2 text-sm font-bold uppercase tracking-wide rounded border transition-colors bg-red-50 text-red-600 border-red-200 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-50">
-                        <Trash2 size={14} /> Clear All
-                     </button>
+              {activeTab === 'logs' && (
+                  // FIXED HEIGHT CONTAINER for Logs to mimic Metadata height (approx 600px)
+                  // This ensures the buttons below stay at the same relative position
+                  <div className="h-[600px] bg-white text-gray-800 rounded-lg p-4 text-sm overflow-y-auto shadow-sm border border-gray-200 relative shrink-0">
+                    {logs.length === 0 ? (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center opacity-40 gap-2 text-gray-400">
+                        <Activity size={32} /> <p>No activity yet.</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {logs.map(log => (
+                          <div key={log.id} className="flex gap-2 items-start break-all border-b border-gray-50 pb-1 last:border-0">
+                            <span className="text-gray-400 shrink-0 font-medium">[{log.time}]</span>
+                            <span className={log.type === 'error' ? 'text-red-600 font-bold' : log.type === 'success' ? 'text-green-600 font-semibold' : log.type === 'warning' ? 'text-orange-600 font-semibold' : 'text-gray-700'}>
+                              {log.message}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
+              )}
+
+              {/* ACTION BUTTONS (Moved inside scrollable content) */}
+              <div className="flex flex-col gap-3 mt-2 pb-4">
+                 {isProcessing ? (
+                   <div className="w-full py-3 bg-gray-100 border border-gray-200 text-gray-500 font-medium rounded-lg flex items-center justify-center gap-3">
+                     <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                     Processing... {completedCount}/{totalFiles}
+                   </div>
+                 ) : (
+                   <button 
+                     onClick={startProcessing}
+                     disabled={!canGenerate}
+                     className={`w-full py-3 text-white font-bold rounded-lg shadow transition-colors flex items-center justify-center gap-2 ${
+                        canGenerate ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'
+                     }`}
+                   >
+                     <Wand2 size={18} /> Generate Metadata
+                   </button>
+                 )}
+
+                 <button 
+                   onClick={handleDownloadCSV}
+                   disabled={totalFiles === 0 || completedCount === 0 || isProcessing}
+                   className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow transition-colors flex items-center justify-center gap-2"
+                 >
+                   <Download size={18} /> Download CSV
+                 </button>
               </div>
-            )}
 
-            {activeTab === 'logs' && (
-              <div className="p-4 h-full flex flex-col animate-in slide-in-from-right-2 duration-300 overflow-hidden">
-                 <div className="bg-white text-gray-800 rounded-lg p-4 h-[600px] md:h-full text-sm overflow-y-auto shadow-sm border border-gray-200 relative">
-                   {logs.length === 0 ? (
-                     <div className="absolute inset-0 flex flex-col items-center justify-center opacity-40 gap-2 text-gray-400">
-                       <Activity size={32} /> <p>No activity yet.</p>
-                     </div>
-                   ) : (
-                     <div className="flex flex-col gap-2">
-                       {logs.map(log => (
-                         <div key={log.id} className="flex gap-2 items-start break-all border-b border-gray-50 pb-1 last:border-0">
-                           <span className="text-gray-400 shrink-0 font-medium">[{log.time}]</span>
-                           <span className={log.type === 'error' ? 'text-red-600 font-bold' : log.type === 'success' ? 'text-green-600 font-semibold' : log.type === 'warning' ? 'text-orange-600 font-semibold' : 'text-gray-700'}>
-                             {log.message}
-                           </span>
-                         </div>
-                       ))}
-                     </div>
-                   )}
-                 </div>
-              </div>
-            )}
-
-          </div>
-
-          <div className="p-4 bg-white border-t border-gray-200 flex flex-col gap-3 sticky bottom-0 md:static shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] md:shadow-none z-30">
-             {isProcessing ? (
-               <div className="w-full py-3 bg-gray-100 border border-gray-200 text-gray-500 font-medium rounded-lg flex items-center justify-center gap-3">
-                 <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-                 Processing... {completedCount}/{totalFiles}
-               </div>
-             ) : (
-               <button 
-                 onClick={startProcessing}
-                 disabled={!canGenerate}
-                 className={`w-full py-3 text-white font-bold rounded-lg shadow transition-colors flex items-center justify-center gap-2 ${
-                    canGenerate ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 cursor-not-allowed'
-                 }`}
-               >
-                 <Wand2 size={18} /> Generate Metadata
-               </button>
-             )}
-
-             <button 
-               onClick={handleDownloadCSV}
-               disabled={totalFiles === 0 || completedCount === 0 || isProcessing}
-               className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold rounded-lg shadow transition-colors flex items-center justify-center gap-2"
-             >
-               <Download size={18} /> Download CSV
-             </button>
+            </div>
           </div>
         </aside>
 
