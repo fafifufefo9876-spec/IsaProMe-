@@ -479,7 +479,6 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col md:flex-row md:overflow-hidden relative pt-16">
         
         {/* Sidebar */}
-        {/* CHANGED: removed min-h-[calc(100vh-4rem)] from mobile view so output results can sit directly below buttons without gap */}
         <aside className="w-full md:w-96 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shrink-0 z-20 shadow-sm md:shadow-none order-1 md:h-full">
           
           <div className="flex p-2 bg-white border-b border-gray-200 gap-2 shrink-0">
@@ -496,7 +495,10 @@ const App: React.FC = () => {
 
           <div ref={sidebarContentRef} className="flex-1 bg-gray-50 flex flex-col overflow-y-auto">
             
-            <div className="p-4 flex flex-col gap-4 animate-in slide-in-from-left-2 duration-300">
+            {/* 
+                UPDATE: Restored pb-4 for mobile to ensure gap between sidebar buttons and output section
+            */}
+            <div className="p-4 pb-4 flex flex-col gap-4 animate-in slide-in-from-left-2 duration-300">
               
               {activeTab === 'metadata' && (
                 <>
@@ -555,7 +557,7 @@ const App: React.FC = () => {
               )}
 
               {/* ACTION BUTTONS (Moved inside scrollable content) */}
-              <div className="flex flex-col gap-3 mt-2 pb-4">
+              <div className="flex flex-col gap-3">
                  {isProcessing ? (
                    <div className="w-full py-3 bg-gray-100 border border-gray-200 text-gray-500 font-medium rounded-lg flex items-center justify-center gap-3">
                      <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
