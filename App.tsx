@@ -46,10 +46,15 @@ const App: React.FC = () => {
   const activeWorkersRef = useRef(0);
   const queueRef = useRef<string[]>([]);
   
-  // Track keys that are currently busy
+  // LOGIC UPDATE: Track active keys to prevent double usage
   const activeKeysRef = useRef<Set<string>>(new Set());
-  // Track keys that have failed and should strictly NOT be used again
-  const deadKeysRef = useRef<Set<string>>(new Set());
+  
+  // LOGIC UPDATE: Cooldown map instead of Dead Keys
+  // Map<ApiKey, TimestampWhenAvailable>
+  const cooldownKeysRef = useRef<Map<string, number>>(new Map());
+  
+  // LOGIC UPDATE: Global Rotation Index for Round-Robin
+  const nextKeyIdxRef = useRef(0);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -63,9 +68,10 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Clear dead keys if user updates the key list
+  // Clear cooldowns if user updates the key list
   useEffect(() => {
-    deadKeysRef.current.clear();
+    cooldownKeysRef.current.clear();
+    nextKeyIdxRef.current = 0;
   }, [apiKeys]);
 
   const formatTime = (date: Date) => {
@@ -113,7 +119,6 @@ const App: React.FC = () => {
   // Instant Process Files (No extraction here, just UI setup)
   const processFiles = (fileList: FileList) => {
     const count = fileList.length;
-    // Modified Log: Include File Type
     addLog(`Uploaded ${count} ${settings.selectedFileType} files. Filtering...`, 'info');
 
     const newFiles: FileItem[] = Array.from(fileList)
@@ -147,7 +152,6 @@ const App: React.FC = () => {
     setFiles([]);
     setIsProcessing(false);
     processingRef.current = false;
-    // Modified Log: Include count
     addLog(`Cleared all ${count} files.`, 'warning');
   };
 
@@ -155,7 +159,6 @@ const App: React.FC = () => {
     const file = files.find(f => f.id === id);
     if (file) {
       URL.revokeObjectURL(file.previewUrl);
-      // Modified Log: Log specific file deletion
       addLog(`Deleted file: ${file.file.name}`, 'warning');
     }
     setFiles(prev => prev.filter(f => f.id !== id));
@@ -184,34 +187,26 @@ const App: React.FC = () => {
     }));
 
     // 2. Background Sync (Translation)
-    // Only if title or keywords changed. Category syncs visually automatically via ID.
     if (field === 'title' || field === 'keywords') {
       const file = files.find(f => f.id === id);
       if (!file || apiKeys.length === 0) return;
 
-      // Use a random key for translation to avoid blocking main generation if possible,
-      // or just use the first available.
       const apiKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
 
       try {
-        // Construct the content to be translated
-        // Grab the LATEST state for the source language (need to use the value passed in)
         const currentSourceMeta = language === 'ENG' 
           ? { ...file.metadata.en, [field]: value } 
           : { ...file.metadata.ind, [field]: value };
 
         const translated = await translateMetadataContent(currentSourceMeta, language, apiKey);
 
-        // Update the TARGET language with result
         setFiles(prev => prev.map(f => {
           if (f.id !== id) return f;
           const newMeta = { ...f.metadata };
           
           if (language === 'ENG') {
-            // Edited ENG, so update IND
             newMeta.ind = translated;
           } else {
-             // Edited IND, so update ENG
             newMeta.en = translated;
           }
           return { ...f, metadata: newMeta };
@@ -239,7 +234,7 @@ const App: React.FC = () => {
 
   const getLanguage = (id: string): Language => fileLanguages[id] || 'ENG';
 
-  // --- ROBUST WORKER LOGIC (MAX 10) ---
+  // --- IMPROVED WORKER LOGIC (Round Robin + Smart Concurrency) ---
 
   const startProcessing = () => {
     if (apiKeys.length === 0) {
@@ -269,13 +264,13 @@ const App: React.FC = () => {
     
     addLog(`Starting Queue: ${queueRef.current.length} files.`, 'info');
 
-    // CONCURRENT LIMIT = 10 (Strict)
-    const maxConcurrency = 10;
-    const workerCount = Math.min(queueRef.current.length, 10); 
+    // SMART CONCURRENCY: 
+    // If you have 1 key, run 2 workers. If 10 keys, run 20 workers. Cap at 20 to prevent browser lag.
+    const maxConcurrency = Math.min(20, Math.max(2, apiKeys.length * 2));
 
-    addLog(`Spawning ${workerCount} workers...`, 'info');
+    addLog(`Spawning ${maxConcurrency} workers (Round Robin Strategy)...`, 'info');
 
-    for (let i = 0; i < workerCount; i++) {
+    for (let i = 0; i < maxConcurrency; i++) {
       spawnWorker(i + 1);
     }
   };
@@ -283,65 +278,87 @@ const App: React.FC = () => {
   const spawnWorker = async (workerId: number) => {
     if (!processingRef.current) return;
 
-    // Get next file
+    // Get next file from FRONT of queue
     const fileId = queueRef.current.shift();
     if (!fileId) {
-      // No more files in queue. 
-      // This worker dies. If all workers dead, process finishes.
+      // No files left? Check if we are truly done
       checkCompletion();
       return;
     }
 
     activeWorkersRef.current++;
 
-    // KEY SELECTION LOGIC
-    let availableKeys = apiKeys.filter(k => !deadKeysRef.current.has(k) && !activeKeysRef.current.has(k));
-    let currentKey = availableKeys[0];
+    // --- KEY SELECTION (ROUND ROBIN) ---
+    // We iterate through the keys starting from the global rotation pointer.
+    // We look for a key that is NOT active AND NOT in cooldown.
+    
+    let selectedKey: string | null = null;
+    const totalKeys = apiKeys.length;
+    const now = Date.now();
 
-    // If no free keys, we try to reuse valid keys (Load Balancing)
-    if (!currentKey) {
-       const validKeys = apiKeys.filter(k => !deadKeysRef.current.has(k));
-       if (validKeys.length === 0) {
-         addLog('CRITICAL: All API Keys are marked as failed (Dead). Stopping.', 'error');
-         setFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: ProcessingStatus.Failed, error: "No valid keys left" } : f));
-         activeWorkersRef.current--;
-         processingRef.current = false;
-         setIsProcessing(false);
-         return;
-       }
-       // Round robin fallback if keys < workers
-       currentKey = validKeys[Math.floor(Math.random() * validKeys.length)];
+    // Clean up expired cooldowns
+    for (const [key, expiry] of cooldownKeysRef.current.entries()) {
+      if (now > expiry) {
+        cooldownKeysRef.current.delete(key);
+      }
+    }
+
+    // Try to find a key by iterating through the list
+    for (let i = 0; i < totalKeys; i++) {
+      // Get key at current rotation index
+      const idx = (nextKeyIdxRef.current + i) % totalKeys;
+      const keyCandidate = apiKeys[idx];
+
+      const isBusy = activeKeysRef.current.has(keyCandidate);
+      const isCooling = cooldownKeysRef.current.has(keyCandidate);
+
+      if (!isBusy && !isCooling) {
+        selectedKey = keyCandidate;
+        // Move the global pointer forward so the next worker picks the NEXT key (Backup logic)
+        nextKeyIdxRef.current = (idx + 1) % totalKeys;
+        break;
+      }
+    }
+
+    // If no key found (All busy or cooling)
+    if (!selectedKey) {
+      // Put file back at the FRONT (since we didn't even try it)
+      queueRef.current.unshift(fileId);
+      activeWorkersRef.current--;
+      
+      // Wait a bit and retry (Throttle)
+      setTimeout(() => spawnWorker(workerId), 1000);
+      return;
     }
 
     // Mark key as active
-    activeKeysRef.current.add(currentKey);
+    activeKeysRef.current.add(selectedKey);
     setFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: ProcessingStatus.Processing } : f));
 
     let fileItem = files.find(f => f.id === fileId);
     
     // Determine Key Number for Logs (1-based index)
-    const keyIndex = apiKeys.indexOf(currentKey) + 1;
+    const keyIndex = apiKeys.indexOf(selectedKey) + 1;
 
     try {
       if (!fileItem) throw new Error("File not found in state");
 
-      // Generate metadata AND extract thumbnail (frame 0)
-      const { metadata, thumbnail } = await generateMetadataForFile(fileItem, settings, currentKey);
+      const { metadata, thumbnail } = await generateMetadataForFile(fileItem, settings, selectedKey);
 
       setFiles(prev => prev.map(f => f.id === fileId ? { 
         ...f, 
         status: ProcessingStatus.Completed, 
         metadata,
-        thumbnail // Store the lightweight thumbnail!
+        thumbnail
       } : f));
       
       addLog(`Key ${keyIndex} [Success] ${fileItem.file.name}`, 'success');
 
-      // Success: Key is free now.
-      activeKeysRef.current.delete(currentKey);
+      // Release key
+      activeKeysRef.current.delete(selectedKey);
 
     } catch (error: any) {
-      activeKeysRef.current.delete(currentKey); // Release logic handle
+      activeKeysRef.current.delete(selectedKey!); // Release logic handle
       
       const errorMsg = String(error).toLowerCase();
       const isKeyError = errorMsg.includes('429') || 
@@ -352,22 +369,19 @@ const App: React.FC = () => {
                          errorMsg.includes('overloaded');
 
       if (isKeyError) {
-        addLog(`Key ${keyIndex} Error (Worker #${workerId}). Marking key DEAD. Swapping...`, 'warning');
+        // --- QUEUE LOGIC UPDATE (Point 2) ---
+        // Push to BACK of queue
+        queueRef.current.push(fileId);
         
-        // MARK KEY DEAD (PERMANENTLY FOR THIS SESSION UNTIL KEY LIST UPDATE)
-        deadKeysRef.current.add(currentKey);
-
-        // RE-QUEUE FILE (High Priority - Unshift)
-        queueRef.current.unshift(fileId);
+        // --- COOLDOWN LOGIC (Point 3) ---
+        // Add to cooldown for 30 seconds
+        cooldownKeysRef.current.set(selectedKey!, Date.now() + 30000);
+        
+        addLog(`Key ${keyIndex} Limited/Error. Cooling down 30s. File moved to end of queue.`, 'warning');
         setFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: ProcessingStatus.Pending } : f));
-        
-        // Decrement active workers momentarily so we can recursively call to restart with new key immediately
-        activeWorkersRef.current--;
-        spawnWorker(workerId); // Restart worker immediately for this file
-        return;
 
       } else {
-        // Non-key error (e.g. file corrupt), fail the file
+        // Non-key error (File corrupt, etc) -> Fail permanently
         console.error(error);
         setFiles(prev => prev.map(f => f.id === fileId ? { 
           ...f, 
@@ -380,11 +394,12 @@ const App: React.FC = () => {
 
     activeWorkersRef.current--;
     
-    // Recursively process next file in queue
+    // Process next file
     spawnWorker(workerId);
   };
 
   const checkCompletion = () => {
+    // Only finish if no workers are active AND queue is empty
     if (activeWorkersRef.current === 0) {
       setTimeout(() => {
         if (queueRef.current.length === 0 && activeWorkersRef.current === 0) {
@@ -392,7 +407,7 @@ const App: React.FC = () => {
             processingRef.current = false;
             addLog('All workers finished.', 'success');
         }
-      }, 500);
+      }, 1000);
     }
   };
 
@@ -402,7 +417,6 @@ const App: React.FC = () => {
   const failedCount = files.filter(f => f.status === ProcessingStatus.Failed).length;
   const pendingCount = files.filter(f => f.status === ProcessingStatus.Pending).length;
   
-  // Logic button active:
   const canGenerate = !isProcessing && (pendingCount > 0 || failedCount > 0);
 
   const getInputAccept = () => {
@@ -484,7 +498,6 @@ const App: React.FC = () => {
 
             {activeTab === 'logs' && (
               <div className="p-4 h-full flex flex-col animate-in slide-in-from-right-2 duration-300 overflow-hidden">
-                 {/* Set a fixed height for mobile to match approximately the height of the settings panel */}
                  <div className="bg-white text-gray-800 rounded-lg p-4 h-[600px] md:h-full text-sm overflow-y-auto shadow-sm border border-gray-200 relative">
                    {logs.length === 0 ? (
                      <div className="absolute inset-0 flex flex-col items-center justify-center opacity-40 gap-2 text-gray-400">
@@ -509,7 +522,6 @@ const App: React.FC = () => {
           </div>
 
           <div className="p-4 bg-white border-t border-gray-200 flex flex-col gap-3 sticky bottom-0 md:static shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] md:shadow-none z-30">
-             {/* Unified Generate Button for Initial + Retry + New Files */}
              {isProcessing ? (
                <div className="w-full py-3 bg-gray-100 border border-gray-200 text-gray-500 font-medium rounded-lg flex items-center justify-center gap-3">
                  <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
@@ -562,7 +574,6 @@ const App: React.FC = () => {
                     onDelete={handleDelete}
                     onUpdate={handleUpdateMetadata}
                     onRetry={(id) => {
-                       // Manual single retry logic set status to Pending
                        setFiles(prev => prev.map(f => f.id === id ? { ...f, status: ProcessingStatus.Pending } : f));
                     }}
                     onPreview={setPreviewItem}
