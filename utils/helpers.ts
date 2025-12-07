@@ -1,3 +1,4 @@
+
 import { Category, FileItem } from "../types";
 import { CATEGORIES } from "../constants";
 
@@ -24,7 +25,8 @@ export const downloadCSV = (files: FileItem[], customFilename?: string): string 
   
   const rows = files.map(f => {
     // Escape quotes for CSV
-    // CRITICAL: Always use f.metadata.en for CSV output
+    // CRITICAL: Always use f.metadata.en (ENGLISH) for CSV output, regardless of UI state
+    // This ensures consistency even if the user is currently editing or viewing in Indonesian.
     const title = `"${f.metadata.en.title.replace(/"/g, '""')}"`;
     const keywords = `"${f.metadata.en.keywords.replace(/"/g, '""')}"`;
     const categoryName = getCategoryName(f.metadata.category, 'ENG'); // Always English

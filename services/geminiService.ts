@@ -14,12 +14,54 @@ const fileToPart = async (file: File): Promise<{ inlineData: { data: string; mim
         resolve({
           inlineData: {
             data: base64String,
-            mimeType: file.type,
+            mimeType: file.type || 'application/octet-stream', // Fallback for AI/EPS
           },
         });
       } else {
         reject(new Error("Failed to read file"));
       }
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+// Helper to convert SVG to JPEG with WHITE BACKGROUND
+// This "tricks" the AI into seeing a solid image instead of transparency
+const convertSvgToWhiteBgJpeg = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error("Canvas context failed"));
+          return;
+        }
+
+        // 1. Fill with WHITE background
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 2. Draw SVG on top
+        ctx.drawImage(img, 0, 0);
+
+        // 3. Export as JPEG (no transparency)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const base64String = dataUrl.split(',')[1];
+        
+        resolve({
+          inlineData: {
+            data: base64String,
+            mimeType: 'image/jpeg', 
+          },
+        });
+      };
+      img.onerror = () => reject(new Error("Failed to load SVG image"));
+      img.src = e.target?.result as string;
     };
     reader.readAsDataURL(file);
   });
@@ -46,20 +88,44 @@ export const generateMetadataForFile = async (
     const categoryListString = CATEGORIES.map(c => `ID: "${c.id}" = ${c.en}`).join('\n');
     systemInstruction += `\n\nAVAILABLE CATEGORIES (Pick one ID):\n${categoryListString}`;
 
-    // 3. Apply User Settings Overrides
+    // 3. Apply User Settings Overrides with STRICT PRIORITY
     if (settings.customTitle) {
-      systemInstruction += `\n\nIMPORTANT OVERRIDE: The English title MUST include: "${settings.customTitle}"`;
+      systemInstruction += `\n\nCRITICAL PRIORITY: The English title MUST contain the phrase: "${settings.customTitle}". Ensure it is the main subject.`;
     }
     if (settings.customKeyword) {
-      systemInstruction += `\n\nIMPORTANT OVERRIDE: The English keywords MUST include: "${settings.customKeyword}"`;
+      systemInstruction += `\n\nCRITICAL PRIORITY: The English keywords list MUST include: "${settings.customKeyword}" in the first 5 keywords.`;
     }
 
     if (settings.slideTitle > 0) {
-      systemInstruction += `\n- STRICT CONSTRAINT: Title length MUST be approximately ${settings.slideTitle} characters.`;
+      systemInstruction += `\n- STRICT CONSTRAINT: Title length MUST be EXACTLY or VERY CLOSE to ${settings.slideTitle} characters. Do not deviate significantly.`;
     }
     
     if (settings.slideKeyword > 0) {
-      systemInstruction += `\n- STRICT CONSTRAINT: Generate exactly or close to ${settings.slideKeyword} keywords.`;
+      systemInstruction += `\n- STRICT CONSTRAINT: You MUST generate EXACTLY ${settings.slideKeyword} keywords. Count them carefully.`;
+    }
+
+    // --- VECTOR SPECIFIC LOGIC ---
+    if (fileItem.type === FileType.Vector) {
+       systemInstruction += `
+       
+       \n=== VECTOR/ILLUSTRATION SPECIFIC RULES ===
+       Since this is a Vector/Illustration file, you MUST follow these specific analysis rules:
+
+       1. VISUAL ANALYSIS:
+          - Identify main shapes (icon, shape, pattern, silhouette, badge, ornament).
+          - Analyze line details (thick, thin, stroke, outline).
+          - Analyze dominant colors and color style.
+
+       2. STYLE IDENTIFICATION:
+          - Detect the design style: flat design, minimalist, outline, 3D vector, retro, geometric, cartoon, or isometric.
+          - Context: business, education, environment, holiday, object, abstract, background, pattern, etc.
+
+       3. NEGATIVE PROMPT (STRICTLY FORBIDDEN):
+          - You are STRICTLY FORBIDDEN from using the following terms in Title or Keywords:
+            "white background", "transparent background", "isolated", "png", "background white", "no shadow background", "watermark", "clipart".
+          - Do NOT describe the file format (e.g., "vector file", "eps", "svg"), describe the visual content only.
+          - Ignore the white background if seen; focus on the object.
+       `;
     }
 
     // 4. Prepare contents
@@ -82,8 +148,21 @@ export const generateMetadataForFile = async (
         { inlineData: { mimeType: 'image/jpeg', data: frames[2] } },
         { text: promptText }
       ];
+    } else if (fileItem.type === FileType.Vector && fileItem.file.type === 'image/svg+xml') {
+      // SPECIAL HANDLING FOR SVG: Convert to JPEG with White Background
+      const mediaPart = await convertSvgToWhiteBgJpeg(fileItem.file);
+      
+      promptText = "Analyze this Vector/Illustration. Focus on the concept, design style (flat, isometric, etc), and visual elements. Do NOT mention background details.";
+      parts = [mediaPart, { text: promptText }];
+
     } else {
+      // DEFAULT HANDLING (Images, PDF, or non-SVG Vectors like AI/EPS if browser allows upload)
       const mediaPart = await fileToPart(fileItem.file);
+      
+      if (fileItem.type === FileType.Vector) {
+         promptText = "Analyze this Vector/Illustration. Focus on the concept, design style (flat, isometric, etc), and visual elements. Do NOT mention background details.";
+      }
+
       parts = [mediaPart, { text: promptText }];
     }
     

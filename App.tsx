@@ -29,7 +29,7 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>({
     customTitle: '',
     customKeyword: '',
-    slideTitle: 50, 
+    slideTitle: 60, // CHANGED: Default updated from 50 to 60
     slideKeyword: 40,
     selectedFileType: FileType.Image,
     csvFilename: '',
@@ -103,9 +103,20 @@ const App: React.FC = () => {
 
   // Wrapper for updating API keys to add logging
   const handleSetApiKeys = (keys: string[]) => {
+    const prevCount = apiKeys.length;
+    const newCount = keys.length;
+    
     setApiKeys(keys);
-    if (keys.length > 0) {
-      addLog(`User inputs API Keys. Total loaded: ${keys.length}`, 'info');
+
+    if (newCount > prevCount) {
+      addLog(`User added ${newCount - prevCount} API Keys. Total: ${newCount}`, 'info');
+    } else if (newCount < prevCount) {
+      addLog(`User removed ${prevCount - newCount} API Keys. Remaining: ${newCount}`, 'warning');
+    } else if (newCount === 0 && prevCount > 0) {
+      addLog(`All API keys removed by user.`, 'warning');
+    } else if (newCount === prevCount && newCount > 0) {
+      // Just an update, maybe typo fix
+      addLog(`API Keys updated. Total: ${newCount}`, 'info');
     }
   };
 
@@ -119,14 +130,31 @@ const App: React.FC = () => {
   // Instant Process Files (No extraction here, just UI setup)
   const processFiles = (fileList: FileList) => {
     const count = fileList.length;
-    addLog(`Uploaded ${count} ${settings.selectedFileType} files. Filtering...`, 'info');
+    addLog(`Uploaded ${count} files. Filtering for ${settings.selectedFileType}...`, 'info');
 
     const newFiles: FileItem[] = Array.from(fileList)
       .filter(file => {
-        if (settings.selectedFileType === FileType.Image) return file.type.startsWith('image/');
-        if (settings.selectedFileType === FileType.Video) return file.type.startsWith('video/');
+        // STRICT FILTERING
+        if (settings.selectedFileType === FileType.Image) {
+          return file.type.startsWith('image/') && !file.type.includes('svg');
+        }
+        if (settings.selectedFileType === FileType.Video) {
+          return file.type.startsWith('video/');
+        }
         if (settings.selectedFileType === FileType.Vector) {
-          return file.type.startsWith('image/') || file.name.endsWith('.eps') || file.name.endsWith('.ai') || file.type === 'application/pdf';
+          // Strict Vector Check: Only SVG, EPS, AI, PDF
+          // Explicitly REJECT generic images to satisfy user requirement
+          if (file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/gif') {
+            return false;
+          }
+          
+          const name = file.name.toLowerCase();
+          return file.type === 'image/svg+xml' || 
+                 file.type === 'application/pdf' ||
+                 name.endsWith('.svg') || 
+                 name.endsWith('.eps') || 
+                 name.endsWith('.ai') || 
+                 name.endsWith('.pdf');
         }
         return false;
       })
@@ -140,7 +168,7 @@ const App: React.FC = () => {
       }));
       
     if (newFiles.length < count) {
-       addLog(`Filtered out ${count - newFiles.length} invalid files.`, 'warning');
+       addLog(`Filtered out ${count - newFiles.length} invalid files (Mismatch Type).`, 'warning');
     }
 
     setFiles(prev => [...prev, ...newFiles]);
@@ -228,8 +256,9 @@ const App: React.FC = () => {
   };
 
   const handleDownloadCSV = () => {
+    // Ensures English metadata is used even if UI shows IND
     const filename = downloadCSV(files, settings.csvFilename);
-    addLog(`Downloaded CSV: ${filename}`, 'success');
+    addLog(`Downloaded CSV: ${filename} (English Standard)`, 'success');
   };
 
   const getLanguage = (id: string): Language => fileLanguages[id] || 'ENG';
@@ -265,8 +294,8 @@ const App: React.FC = () => {
     addLog(`Starting Queue: ${queueRef.current.length} files.`, 'info');
 
     // SMART CONCURRENCY: 
-    // If you have 1 key, run 2 workers. If 10 keys, run 20 workers. Cap at 20 to prevent browser lag.
-    const maxConcurrency = Math.min(20, Math.max(2, apiKeys.length * 2));
+    // CAP AT 10 WORKERS TO PREVENT HEAVINESS
+    const maxConcurrency = Math.min(10, Math.max(2, apiKeys.length * 2));
 
     addLog(`Spawning ${maxConcurrency} workers (Round Robin Strategy)...`, 'info');
 
@@ -470,8 +499,9 @@ const App: React.FC = () => {
                 <MetadataSettings settings={settings} setSettings={setSettings} isProcessing={isProcessing} />
 
                 <div className="flex flex-col gap-3">
-                  <input ref={fileInputRef} type="file" multiple accept={getInputAccept()} onChange={handleFileUpload} className="hidden" disabled={isProcessing} />
-                  <input ref={folderInputRef} type="file" multiple {...({ webkitdirectory: "", directory: "" } as any)} onChange={handleFileUpload} className="hidden" disabled={isProcessing} />
+                  {/* Key attribute ensures React replaces the input when type changes, strictly clearing previous accept rules */}
+                  <input key={`file-${settings.selectedFileType}`} ref={fileInputRef} type="file" multiple accept={getInputAccept()} onChange={handleFileUpload} className="hidden" disabled={isProcessing} />
+                  <input key={`folder-${settings.selectedFileType}`} ref={folderInputRef} type="file" multiple {...({ webkitdirectory: "", directory: "" } as any)} onChange={handleFileUpload} className="hidden" disabled={isProcessing} />
 
                   <div className="flex gap-2">
                     <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className={`flex-1 py-3 rounded-lg font-bold shadow-sm transition-all flex items-center justify-center gap-2 ${isProcessing ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}>
