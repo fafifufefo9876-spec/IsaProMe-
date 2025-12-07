@@ -67,6 +67,62 @@ const convertSvgToWhiteBgJpeg = async (file: File): Promise<{ inlineData: { data
   });
 };
 
+// NEW: Helper to Compress standard images (JPG/PNG)
+// Resizes large images to max 2000px and compresses quality to 0.8
+const compressImage = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        // Limit max dimension to 2000px (approx 2K resolution) - Sufficient for AI
+        const MAX_WIDTH = 2000;
+        const MAX_HEIGHT = 2000;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error("Canvas context failed"));
+          return;
+        }
+
+        // Draw image resized
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Compress to JPEG 0.8 quality (Good balance between size and detail)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        const base64String = dataUrl.split(',')[1];
+        
+        resolve({
+          inlineData: {
+            data: base64String,
+            mimeType: 'image/jpeg', 
+          },
+        });
+      };
+      img.onerror = () => reject(new Error("Failed to load image for compression"));
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
 // Define return type to include thumbnail
 interface GenerationResult {
   metadata: FileMetadata;
@@ -155,8 +211,15 @@ export const generateMetadataForFile = async (
       promptText = "Analyze this Vector/Illustration. Focus on the concept, design style (flat, isometric, etc), and visual elements. Do NOT mention background details.";
       parts = [mediaPart, { text: promptText }];
 
+    } else if (fileItem.type === FileType.Image) {
+      // OPTIMIZATION: Compress standard images (JPG/PNG) before sending
+      // This significantly speeds up upload for large photos
+      const mediaPart = await compressImage(fileItem.file);
+      parts = [mediaPart, { text: promptText }];
+
     } else {
-      // DEFAULT HANDLING (Images, PDF, or non-SVG Vectors like AI/EPS if browser allows upload)
+      // DEFAULT FALLBACK (PDF Vectors, AI/EPS where browser upload is raw)
+      // Send raw bytes
       const mediaPart = await fileToPart(fileItem.file);
       
       if (fileItem.type === FileType.Vector) {
