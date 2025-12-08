@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, Trash2, Wand2, UploadCloud, FolderOutput, FilePlus, CheckCircle, AlertCircle, Circle, Database, Activity, Coffee, FolderPlus } from 'lucide-react';
+import { Download, Trash2, Wand2, UploadCloud, FolderOutput, FilePlus, CheckCircle, AlertCircle, Circle, Database, Activity, Coffee, FolderPlus, Sparkles, Eraser } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 import ApiKeyPanel from './components/ApiKeyPanel';
@@ -99,6 +99,11 @@ const App: React.FC = () => {
       message,
       type
     }]);
+  };
+
+  const handleClearLogs = () => {
+    setLogs([]);
+    addLog('Logs cleared by user.', 'info');
   };
 
   // Wrapper for updating API keys to add logging
@@ -277,8 +282,9 @@ const App: React.FC = () => {
       return;
     }
 
-    // Set Failed back to Pending visually immediately
-    setFiles(prev => prev.map(f => f.status === ProcessingStatus.Failed ? { ...f, status: ProcessingStatus.Pending, error: undefined } : f));
+    // REMOVED: Immediate bulk reset of Failed -> Pending.
+    // This allows the Failed count to remain steady and decrease one-by-one as workers pick them up.
+    // setFiles(prev => prev.map(f => f.status === ProcessingStatus.Failed ? { ...f, status: ProcessingStatus.Pending, error: undefined } : f));
 
     // UI Locking & State Init
     setIsProcessing(true);
@@ -360,7 +366,8 @@ const App: React.FC = () => {
 
     // Mark key as active
     activeKeysRef.current.add(selectedKey);
-    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: ProcessingStatus.Processing } : f));
+    // Mark file as Processing (clearing previous errors if any)
+    setFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: ProcessingStatus.Processing, error: undefined } : f));
 
     let fileItem = files.find(f => f.id === fileId);
     
@@ -388,14 +395,19 @@ const App: React.FC = () => {
       activeKeysRef.current.delete(selectedKey!); // Release logic handle
       
       const errorMsg = String(error).toLowerCase();
-      const isKeyError = errorMsg.includes('429') || 
-                         errorMsg.includes('403') || 
-                         errorMsg.includes('quota') || 
-                         errorMsg.includes('timeout') ||
-                         errorMsg.includes('fetch failed') ||
-                         errorMsg.includes('overloaded');
+      
+      // LOGIC UPDATE: Strict definition of Temporary vs Fatal
+      // 429 = Too Many Requests
+      // quota/403 = Key exhausted (Temporary for file, Fatal for key) -> Retry with other key
+      // overloaded = Server busy
+      // timeout / fetch failed = Network blip
+      const isTemporaryError = errorMsg.includes('429') || 
+                               errorMsg.includes('quota') || 
+                               errorMsg.includes('overloaded') || 
+                               errorMsg.includes('timeout') ||
+                               errorMsg.includes('fetch failed');
 
-      if (isKeyError) {
+      if (isTemporaryError) {
         // --- QUEUE LOGIC UPDATE (Point 2) ---
         // Push to BACK of queue
         queueRef.current.push(fileId);
@@ -408,7 +420,7 @@ const App: React.FC = () => {
         setFiles(prev => prev.map(f => f.id === fileId ? { ...f, status: ProcessingStatus.Pending } : f));
 
       } else {
-        // Non-key error (File corrupt, etc) -> Fail permanently
+        // Non-limit error (File corrupt, Safety block, Bad Request) -> Fail immediately
         console.error(error);
         setFiles(prev => prev.map(f => f.id === fileId ? { 
           ...f, 
@@ -536,32 +548,42 @@ const App: React.FC = () => {
               {activeTab === 'logs' && (
                   // FIXED HEIGHT CONTAINER for Logs to mimic Metadata height (approx 600px)
                   // This ensures the buttons below stay at the same relative position
-                  <div className="h-[600px] bg-white text-gray-800 rounded-lg p-4 text-sm overflow-y-auto shadow-sm border border-gray-200 relative shrink-0">
-                    {logs.length === 0 ? (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center opacity-40 gap-2 text-gray-400">
-                        <Activity size={32} /> <p>No activity yet.</p>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {logs.map(log => (
-                          <div key={log.id} className="flex gap-2 items-start break-all border-b border-gray-50 pb-1 last:border-0">
-                            <span className="text-gray-400 shrink-0 font-medium">[{log.time}]</span>
-                            <span className={log.type === 'error' ? 'text-red-600 font-bold' : log.type === 'success' ? 'text-green-600 font-semibold' : log.type === 'warning' ? 'text-orange-600 font-semibold' : 'text-gray-700'}>
-                              {log.message}
-                            </span>
+                  <div className="h-[600px] bg-white text-gray-800 rounded-lg shadow-sm border border-gray-200 relative shrink-0 flex flex-col overflow-hidden">
+                    {/* Clear Logs Button (Full Width Top) - RED/ACTIVE STYLE */}
+                    <button 
+                      onClick={handleClearLogs}
+                      className="w-full py-2 bg-red-50 hover:bg-red-100 border-b border-red-100 text-red-600 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-colors shrink-0"
+                    >
+                      <Eraser size={14} /> Clear Logs
+                    </button>
+
+                    <div className="flex-1 overflow-y-auto p-4">
+                        {logs.length === 0 ? (
+                          <div className="h-full flex flex-col items-center justify-center opacity-40 gap-2 text-gray-400">
+                            <Activity size={32} /> <p>No activity yet.</p>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                        ) : (
+                          <div className="flex flex-col gap-2">
+                            {logs.map(log => (
+                              <div key={log.id} className="flex gap-2 items-start break-all border-b border-gray-50 pb-1 last:border-0">
+                                <span className="text-gray-400 shrink-0 font-medium">[{log.time}]</span>
+                                <span className={log.type === 'error' ? 'text-red-600 font-bold' : log.type === 'success' ? 'text-green-600 font-semibold' : log.type === 'warning' ? 'text-orange-600 font-semibold' : 'text-gray-700'}>
+                                  {log.message}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                    </div>
                   </div>
               )}
 
               {/* ACTION BUTTONS (Moved inside scrollable content) */}
               <div className="flex flex-col gap-3">
                  {isProcessing ? (
-                   <div className="w-full py-3 bg-gray-100 border border-gray-200 text-gray-500 font-medium rounded-lg flex items-center justify-center gap-3">
-                     <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-                     Processing... {completedCount}/{totalFiles}
+                   <div className="w-full py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 text-blue-700 font-bold rounded-lg flex items-center justify-center gap-2 shadow-sm select-none">
+                     <Sparkles className="w-5 h-5 text-blue-600 animate-spin" style={{ animationDuration: '3s' }} />
+                     <span className="tracking-widest text-sm">GENERATING...</span>
                    </div>
                  ) : (
                    <button 
